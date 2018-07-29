@@ -28,6 +28,7 @@ class Player:
 
     def reset(self):
         self._tiles.clear()
+        self._cnt = np.zeros([34])
 
     def add(self, tiles):
         if isinstance(tiles, collections.Iterable):

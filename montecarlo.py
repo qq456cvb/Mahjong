@@ -1,20 +1,92 @@
-import threading
+# import threading
 import math
 import numpy as np
 from time import sleep
 import copy
 import itertools
+from multiprocessing import Process, Lock
 import random
 
 
+# TODO : step need to pass AI players
+# TODO: random shuffle game state when player is unaware
+class State:
+    class STATE_ID:
+        CHOW = 0
+        DISCARD = 1
+        PUNG1 = 2
+        PUNG2 = 3
+        PUNG3 = 4
+        FINISHED = 5
+
+    def __init__(self, state_id, last_tile, players, remain_cards, idx):
+        self.last_tile = last_tile
+        self.players = players
+        self.idx = idx
+        self.state_id = state_id
+        self.remain_cards = remain_cards
+        self.winner = -1
+
+    def get_action_space(self):
+        if self.state_id == State.STATE_ID.CHOW:
+            can_chow, sols = self.players[self.idx].can_chow(self.last_tile)
+            return [None, *sols] if can_chow else [None]
+        elif self.state_id == State.STATE_ID.DISCARD:
+            return self.players[self.idx]._tiles
+        elif State.STATE_ID.PUNG1 <= self.state_id <= State.STATE_ID.PUNG3:
+            can_pung = self.players[(self.idx + 1 + self.state_id - State.STATE_ID.PUNG1) % 4].can_pung(self.last_tile)
+            return [False, True] if can_pung else [False]
+        elif self.state_id == State.STATE_ID.FINISHED:
+            return []
+        else:
+            raise Exception('invalid state id')
+
+    @staticmethod
+    def step(s, a):
+        sprime = copy.deepcopy(s)
+        if sprime.state_id == State.STATE_ID.CHOW:
+            sprime.state_id = State.STATE_ID.DISCARD
+            if a is not None:
+                sprime.players[sprime.idx].remove(a)
+            else:
+                sprime.players[sprime.idx].add(sprime.remain_cards.pop(0))
+                if sprime.players[sprime.idx].respond_complete():
+                    sprime.state_id = State.STATE_ID.FINISHED
+                    sprime.winner = sprime.idx
+        elif sprime.state_id == State.STATE_ID.DISCARD:
+            sprime.last_tile = a
+            sprime.players[sprime.idx].remove(a)
+            sprime.state_id = State.STATE_ID.PUNG1
+            for i in range(sprime.idx + 1, sprime.idx + 4):
+                if sprime.players[i % 4].respond_complete(sprime.last_tile):
+                    sprime.state_id = State.STATE_ID.FINISHED
+                    sprime.winner = i % 4
+                    break
+            if len(sprime.remain_cards) == 0 and sprime.state_id != State.STATE_ID.FINISHED:
+                sprime.state_id = State.STATE_ID.FINISHED
+                sprime.winner = -1
+        elif State.STATE_ID.PUNG1 <= sprime.state_id <= State.STATE_ID.PUNG3:
+            if a:
+                sprime.idx = (sprime.idx + 1 + sprime.state_id - State.STATE_ID.PUNG1) % 4
+                sprime.players[sprime.idx].remove([sprime.last_tile, sprime.last_tile])
+                sprime.state_id = State.STATE_ID.DISCARD
+            else:
+                sprime.state_id += 1
+                if sprime.state_id > State.STATE_ID.PUNG3:
+                    sprime.idx = (sprime.idx + 1) % 4
+                    sprime.state_id = State.STATE_ID.CHOW
+        return sprime
+
+
 class Node:
-    def __init__(self, src, env, a_type, actions, priors):
-        self.env = env
-        self.a_type = a_type
-        self.a = actions
+    def __init__(self, src, state, priors=None):
+        self.state = state
+        self.a = state.get_action_space()
+        if not priors:
+            priors = np.ones([len(self.a)]) * 1. / len(self.a)
         self.src = src
         self.edges = []
-        self.lock = threading.Lock()
+        self.lock = Lock()
         for i in range(len(self.a)):
             self.edges.append(Edge(self, self.a[i], priors[i]))
 
@@ -31,78 +103,43 @@ class Edge:
         self.w = 0
         self.q = 0
         self.terminated = False
+        self.lock = Lock()
         self.r = 0
         self.p = prior
         self.src = src
         self.node = None
 
 
-def clone_env(env):
-    env_clone = copy.copy(env)
-    env_clone._current_turn = env._current_turn
-    for i in range(4):
-        env_clone._players[i] = copy.deepcopy(env._players[i])
-    env_clone._last_tile = env._last_tile
-    env_clone._control_player = env._control_player
-    env_clone._all_tiles = env._all_tiles.copy()
-    env._run, env_clone._run = itertools.tee(env._run)
-    env_clone._run = env_clone.run()
-    env_clone._searching = env._searching
-    return env_clone
-
-
 class MCTree:
-    def __init__(self, env, idx, a_type):
+    def __init__(self, state, idx):
+        self.root = Node(None, state)
         self.idx = idx
-        self.env = env
-        action_space = env.get_action_space(idx, a_type)
-        self.root = Node(None, env, a_type, action_space, np.ones([len(action_space)]) * 1. / len(action_space))
         self.counter = 0
-        self.counter_lock = threading.Lock()
+        self.counter_lock = Lock()
 
     def rollout(self, node):
-        player = node.env._players[self.idx]
-        player.respond_normal = lambda: player.remove(random.choice(player._tiles))
-
-        def foo(tile):
-            can_chow, sols = player.can_chow(tile)
-            if can_chow:
-                player.remove(random.choice(sols))
-                return True
-            return False
-        player.respond_chow = foo
-
-        def foo(tile):
-            if player.can_pung(tile):
-                player.remove([tile, tile])
-                return True
-            return False
-        player.respond_pung = foo
-
-        try:
-            while True:
-                next(node.env._run_search)
-        except StopIteration as e:
-            winner = e.value[0]
-            if winner == self.idx:
-                return 1
-            elif winner == -1:
-                return 0
-            else:
-                return -1
+        state = node.state
+        while state.state_id != State.STATE_ID.FINISHED:
+            state = State.step(state, random.choice(state.get_action_space()))
+        if state.winner == self.idx:
+            r = 1
+        elif state.winner >= 0:
+            r = -1
+        else:
+            r = 0
+        return r
 
     def search(self, nthreads, n):
         self.counter = n
-        self.env._searching = True
-        threads = []
+        procs = []
         for i in range(nthreads):
-            t = threading.Thread(target=self.search_thread, args=())
-            threads.append(t)
-            t.start()
+            p = Process(target=self.search_thread, args=())
+            procs.append(p)
+            p.start()
             sleep(0.05)
-        for t in threads:
-            t.join()
-        self.env._searching = False
+        for p in procs:
+            p.join()
+        print([e.n for e in self.root.edges])
 
     def search_thread(self):
         while True:
@@ -114,48 +151,55 @@ class MCTree:
                 self.counter -= 1
             self.counter_lock.release()
             val, leaf = self.explore(self.root)
+            # print(val)
             if leaf:
                 self.backup(leaf, val)
+            print([e.n for e in self.root.edges])
 
     def explore(self, node):
         # TODO: add virtual loss for current branch
         node.lock.acquire()
         edge = node.choose(1.)
         if edge.node:
+            node.lock.release()
             if edge.terminated:
-                node.lock.release()
                 return edge.r, edge.node
             else:
-                node.lock.release()
                 return self.explore(edge.node)
         else:
-            env_clone = clone_env(node.env)
-            print(node.env._run)
-            print(env_clone._run)
-            r, done, a_type = env_clone.step(self.idx, node.a_type, edge.a)
-            action_space = env_clone.get_action_space(self.idx, a_type)
-            edge.node = Node(edge, env_clone, a_type, action_space, np.ones([len(action_space)]) * 1. / len(action_space))
-            if done:
+            sprime = State.step(node.state, edge.a)
+            edge.node = Node(edge, sprime)
+            node.lock.release()
+            if sprime.state_id == State.STATE_ID.FINISHED:
+                if sprime.winner == self.idx:
+                    r = 1
+                elif sprime.winner >= 0:
+                    r = -1
+                else:
+                    r = 0
                 edge.terminated = True
                 edge.r = r
-                node.lock.release()
                 return r, edge.node
-            node.lock.release()
             return self.rollout(edge.node), edge.node
 
     def backup(self, node, v):
         while node.src:
-            node.lock.acquire()
             edge = node.src
+            edge.lock.acquire()
             edge.n += 1
             edge.w += v
             edge.q = edge.w / edge.n
-            node.lock.release()
+            edge.lock.release()
             node = edge.src
+            assert edge in node.edges
+            if node == self.root:
+                print(edge.n)
 
     def predict(self, temp):
         # print([e.n for e in self.root.edges])
         probs = np.array([pow(e.n, 1. / temp) for e in self.root.edges])
+        print([e.n for e in self.root.edges])
         probs = probs / np.sum(probs)
         # print(probs)
-        return self.root.a[np.argmax(probs)]
+
+        return np.random.choice(self.root.a, p=probs)

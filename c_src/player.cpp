@@ -1,5 +1,6 @@
 #include "player.h"
 #include <algorithm>
+#include <iostream>
 
 template< typename T, typename Pred >
 typename std::vector<T>::iterator
@@ -13,7 +14,13 @@ typename std::vector<T>::iterator
 }
 
 Player::Player(const vector<TILE_TYPE>& tiles) {
+    this->cnt.resize(34, 0);
     this->add(tiles);
+}
+
+Player::Player(Player* const p) {
+    this->cnt = p->cnt;
+    this->tiles = p->tiles;
 }
 
 void Player::add(const vector<TILE_TYPE>& tiles) {
@@ -22,6 +29,7 @@ void Player::add(const vector<TILE_TYPE>& tiles) {
         insert_sorted(this->tiles, t, [](const TILE_TYPE& t1, const TILE_TYPE& t2) {
             return static_cast<int>(t1) < static_cast<int>(t2);
         });
+        
     }
 }
 

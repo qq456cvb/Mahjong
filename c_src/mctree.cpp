@@ -1,15 +1,31 @@
 #include "mctree.h"
+#include <math.h>
 #include <assert.h>
 
-State::State(STATE_ID id, TILE_TYPE last_tile, const vector<TILE_TYPE>& handcards,
-        const vector<TILE_TYPE>& left_cards, int idx) {
+State::State(STATE_ID id, TILE_TYPE last_tile, const vector<vector<TILE_TYPE>>& handcards,
+        const vector<TILE_TYPE>& deck, int idx) {
     this->id = id;
     this->last_tile = last_tile;
-    // TODO: random assign unseen cards to deck and players
-    this->remain_cards = left_cards;
+    for (int i = 0; i < 3; i++) {
+        this->players.push_back(new Player(handcards[i]));
+    }
+    this->remain_cards = deck;
     this->idx = idx;
 }
 
+State::State(const State& s) : last_tile(s.last_tile), idx(s.idx), winner(s.winner), id(s.id), remain_cards(s.remain_cards) {
+    for (int i = 0; i < s.players.size(); i++) {
+        this->players.push_back(new Player(s.players[i]));
+    }
+}
+
+State::~State() {
+    for (auto p : this->players) {
+        if (p) {
+            delete p;
+        }
+    }
+}
 
 vector<vector<TILE_TYPE>> State::get_action_space() {
     if (id == STATE_ID::CHOW) {
@@ -35,6 +51,201 @@ vector<vector<TILE_TYPE>> State::get_action_space() {
         throw std::runtime_error("invalid state id");
     }
 }
+
+
+Node::Node(Edge* src, State* st, vector<float> priors) {
+    this->st = st;
+    this->actions = st->get_action_space();
+    if (priors.empty() && !this->actions.empty()) {
+        priors = vector<float>(this->actions.size(), 1.f / this->actions.size());
+    }
+    this->src = src;
+    for (int i = 0; i < this->actions.size(); i++) {
+        this->edges.push_back(new Edge(this, this->actions[i], priors[i]));
+    }
+}
+
+Node::~Node() {
+    if (this->st) {
+        delete this->st;
+    }
+    for (auto e : this->edges) {
+        if (e) {
+            delete e;
+        }
+    }
+}
+
+Edge::Edge(Node* src, const vector<TILE_TYPE>& action, float prior) {
+    this->action = action;
+    this->p = prior;
+    this->src = src;
+}
+
+
+Edge::~Edge() {
+    if (this->dest) {
+        delete this->dest;
+    }
+}
+
+
+Edge* Node::choose(float c) {
+    float sum = 0.f;
+    for (auto e : edges) {
+        sum += e->n;
+    }
+    float nsum_sqrt = sqrtf(sum);
+    int best_idx = -1;
+    float best = -100.f;
+    for (int i = 0; i < edges.size(); i++) {
+        float cand = edges[i]->q + c * edges[i]->p * nsum_sqrt / (1.f + edges[i]->n);
+        if (cand > best) {
+            best_idx = i;
+            best = cand;
+        }
+    }
+    return edges[best_idx];
+}
+
+
+MCTree::MCTree(State* st, int idx, float c) {
+    this->root = new Node(nullptr, st);
+    this->idx = idx;
+    this->counter = 0;
+    this->c = c;
+}
+
+
+MCTree::~MCTree() {
+    if (root) {
+        delete root;
+    }
+}
+
+void MCTree::search(int n_threads, int n) {
+    counter = n;
+    vector<thread> threads;
+    for (int i = 0; i < n_threads; i++) {
+        
+        threads.push_back(std::move(std::thread(&MCTree::search_thread, this)));
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+}
+
+void MCTree::search_thread() {
+    while (true) {
+        {
+            std::lock_guard<std::mutex> lock(counter_mu);
+            if (counter == 0) {
+                break;
+            } else {
+                counter--;
+            }
+        }
+        float val = 0.f;
+        Node* leaf = explore(root, val);
+        if (leaf) {
+            backup(leaf, val);
+        }
+    }
+}
+
+Node* MCTree::explore(Node* node, float& val) {
+    std::unique_lock<std::mutex> lock(node->mu);
+    auto edge = node->choose(this->c);
+    if (edge->dest) {
+        lock.unlock();
+        if (edge->terminiated) {
+            val = edge->r;
+            return edge->dest;
+        } else {
+            return explore(edge->dest, val);
+        }
+    } else {
+        State* sprime = step(*node->st, edge->action);
+        while (sprime->idx != this->idx) {
+            auto last_s = sprime;
+            auto actions = sprime->get_action_space();
+            sprime = step(*sprime, actions[rand() % actions.size()]);
+            if (last_s) {
+                delete last_s;
+            }
+        }
+        edge->dest = new Node(edge, sprime);
+        lock.unlock();
+        if (sprime->id == STATE_ID::FINISHED) {
+            if (sprime->winner == idx) {
+                edge->r = 1;
+            } else if (sprime->winner >= 0) {
+                edge->r = -1;
+            } else {
+                edge->r = 0;
+            }
+            edge->terminiated = true;
+            val = edge->r;
+            return edge->dest;
+        }
+        val = rollout(edge->dest);
+        cout << val << endl;
+        return edge->dest;
+    }
+}
+
+void MCTree::backup(Node* node, float val) {
+    while (node->src) {
+        auto edge = node->src;
+        {
+            std::lock_guard<std::mutex> lock(edge->mu);
+            edge->n++;
+            edge->w += val;
+            edge->q = edge->w / edge->n;
+        }
+        node = edge->src;
+    }
+}
+
+float MCTree::rollout(Node* node) {
+    auto st = node->st;
+    bool first_time = true;
+    while (st->id != STATE_ID::FINISHED) {
+        auto actions = st->get_action_space();
+        auto last_st = st;
+        st = step(*st, actions[rand() % actions.size()]);
+        if (last_st && !first_time) {
+            delete last_st;
+        }
+        if (first_time) {
+            first_time = false;
+        }
+    }
+    float r = 0;
+    if (st->winner == idx) {
+        r = 1.f;
+    } else if (st->winner >= 0) {
+        r = -1.f;
+    } else {
+        r = 0;
+    }
+    delete st;
+    return r;
+}
+
+vector<TILE_TYPE> MCTree::predict(float temp) {
+    int max_n = 0;
+    int max_id = 0;
+    for (int i = 0; i < root->edges.size(); i++) {
+        cout << root->edges[i]->n << endl;
+        if (root->edges[i]->n > max_n) {
+            max_n = root->edges[i]->n;
+            max_id = i;
+        }
+    }
+    return root->edges[max_id]->action;
+}
+
 
 State* step(const State& s, const vector<TILE_TYPE>& a) {
     State* sprime = new State(s);
@@ -81,103 +292,4 @@ State* step(const State& s, const vector<TILE_TYPE>& a) {
         }
     }
     return sprime;
-}
-
-
-Edge* Node::choose(float c) {
-    float sum = 0.f;
-    for (auto e : edges) {
-        sum += e->n;
-    }
-    float nsum_sqrt = sqrtf(sum);
-    int best_idx = -1;
-    float best = -100.f;
-    for (int i = 0; i < edges.size(); i++) {
-        float cand = edges[i]->q + c * edges[i]->p * nsum_sqrt / (1.f + edges[i]->n);
-        if (cand > best) {
-            best_idx = i;
-            best = cand;
-        }
-    }
-    return edges[best_idx];
-}
-
-
-void MCTree::search(int n_threads, int n) {
-    counter = n;
-    vector<thread> threads;
-    for (int i = 0; i < n_threads; i++) {
-        threads.push_back(std::move(std::thread(&MCTree::search_thread, this)));
-    }
-    for (auto& t : threads) {
-        t.join();
-    }
-
-}
-
-void MCTree::search_thread() {
-    while (true) {
-        {
-            std::lock_guard<std::mutex> lock(counter_mu);
-            if (counter == 0) {
-                break;
-            } else {
-                counter--;
-            }
-        }
-        float val = 0.f;
-        Node* leaf = explore(root, val);
-        if (leaf) {
-            
-        }
-    }
-}
-
-Node* MCTree::explore(Node* node, float& val) {
-    std::unique_lock<std::mutex> lock(node->mu);
-    auto edge = node->choose(1.f);
-    if (edge->dest) {
-        lock.unlock();
-        if (edge->terminiated) {
-            val = edge->r;
-            return edge->dest;
-        } else {
-            return explore(edge->dest, val);
-        }
-    } else {
-        State* sprime = step(*node->st, edge->action);
-        edge->dest = new Node(edge, sprime);
-        lock.unlock();
-        if (sprime->id == STATE_ID::FINISHED) {
-            if (sprime->winner == idx) {
-                edge->r = 1;
-            } else if (sprime->winner >= 0) {
-                edge->r = -1;
-            } else {
-                edge->r = 0;
-            }
-            edge->terminiated = true;
-            val = edge->r;
-            return edge->dest;
-        }
-        val = rollout(edge->dest);
-        return edge->dest;
-    }
-}
-
-void MCTree::backup(Node* node, float val) {
-    while (node->src) {
-        auto edge = node->src;
-        {
-            std::lock_guard<std::mutex> lock(edge->mu);
-            edge->n++;
-            edge->w += val;
-            edge->q = edge->w / edge->n;
-        }
-        node = edge->src;
-    }
-}
-
-float MCTree::rollout(Node* node) {
-    return 0;
 }

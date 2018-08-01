@@ -3,7 +3,7 @@ project(clib)
 set (CMAKE_CXX_STANDARD 14)
 
 find_package(pybind11 REQUIRED)
-pybind11_add_module(clib ./c_src/export.cpp)
+pybind11_add_module(clib ./c_src/export.cpp ./c_src/mctree.cpp ./c_src/player.cpp)
 if(MSVC)
   target_compile_options(env PRIVATE /utf-8)
 endif()

@@ -1,15 +1,11 @@
 #include <vector>
 
-#include <pybind11/pybind11.h>
 #include <iostream>
-#include <pybind11/numpy.h>
-#include <pybind11/stl.h>
+
 #include "player.h"
 #include <thread>
 #include <mutex>
 
-namespace py = pybind11;
-using namespace pybind11::literals;
 using namespace std;
 
 
@@ -32,9 +28,13 @@ public:
     STATE_ID id;
     vector<Player*> players;
     vector<TILE_TYPE>remain_cards;
+
     State(STATE_ID id, TILE_TYPE last_tile, 
-        const vector<TILE_TYPE>& handcards, 
-        const vector<TILE_TYPE>& remain_cards, int idx);
+        const vector<vector<TILE_TYPE>>& handcards, 
+        const vector<TILE_TYPE>& deck, int idx);
+    State(const State&);
+
+    ~State();
     
     vector<vector<TILE_TYPE>> get_action_space();
 
@@ -45,13 +45,16 @@ class Edge;
 
 class Node {
 public:
-    State* st;
+    State* st = nullptr;
     vector<vector<TILE_TYPE>> actions;
-    Edge* src;
+    Edge* src = nullptr;
     vector<Edge*> edges;
     std::mutex mu;
 
     Node(Edge* src, State* st, vector<float> priors = vector<float>());
+
+    ~Node();
+
     Edge* choose(float c);
 };
 
@@ -66,26 +69,33 @@ public:
     std::mutex mu;
     float r = 0.f;
     float p = 0.f;
-    Node* src;
-    Node* dest;
+    Node* src = nullptr;
+    Node* dest = nullptr;
 
     Edge(Node* src, const vector<TILE_TYPE>& action, float prior);
+
+    ~Edge();
 };
 
 
 class MCTree {
 public:
-    Node* root;
-    int idx;
+    Node* root = nullptr;
+    int idx = -1;
     int counter = 0;
+    float c = 0;
     std::mutex counter_mu;
 
-    MCTree(State*, int idx);
+    MCTree(State*, int idx, float c);
+
+    ~MCTree();
+
     void search(int n_threads, int n);
     void search_thread();
     Node* explore(Node* node, float& val);
     void backup(Node* node, float val);
     float rollout(Node* node);
+    vector<TILE_TYPE> predict(float temp);
 };
 
 

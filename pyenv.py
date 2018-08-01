@@ -5,6 +5,10 @@ from players import Player
 import copy
 import itertools
 from montecarlo import MCTree, State
+import sys
+import numpy as np
+sys.path.insert(0, './build')
+from clib import mc_search, STATE_ID, TILE_TYPE
 
 NUM_PROCS = 1
 NUM_SEARCH = 10
@@ -69,12 +73,17 @@ class MCPlayer(Player):
             return True
         return False
 
+    # TODO: assume incomplete information, sample from multiple monte-carlo trees
     def respond_normal(self):
-        s = State(State.STATE_ID. DISCARD, self.env._last_tile, self.env._players, self.env._all_tiles, self.env._current_turn)
-        mc = MCTree(s, self.env._current_turn)
-        mc.search(NUM_PROCS, NUM_SEARCH)
-        a = mc.predict(0.5)
-        return self.remove(a)
+        assert self.env._current_turn == self.idx
+        a = mc_search(STATE_ID.DISCARD, TILE_TYPE.NONE, [[TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE], [TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE], [TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE]],
+                      [TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE], self.env._current_turn, self.idx, 1, 100)
+        print(a)
+        # s = State(State.STATE_ID. DISCARD, self.env._last_tile, self.env._players, self.env._all_tiles, self.env._current_turn)
+        # mc = MCTree(s, self.env._current_turn)
+        # mc.search(NUM_PROCS, NUM_SEARCH)
+        # a = mc.predict(0.5)
+        return self.remove(resource.TileType.int2enum(int(a[0])))
 
     def respond_complete(self, tile=None):
         return self.can_complete(tile)

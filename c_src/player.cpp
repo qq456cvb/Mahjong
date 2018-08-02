@@ -1,6 +1,10 @@
 #include "player.h"
 #include <algorithm>
 #include <iostream>
+#include <assert.h>
+#include <unordered_set>
+
+extern unordered_set<int> complete_keys;
 
 template< typename T, typename Pred >
 typename std::vector<T>::iterator
@@ -18,9 +22,9 @@ Player::Player(const vector<TILE_TYPE>& tiles) {
     this->add(tiles);
 }
 
-Player::Player(Player* const p) {
-    this->cnt = p->cnt;
-    this->tiles = p->tiles;
+Player::Player(const Player& p) {
+    this->cnt = p.cnt;
+    this->tiles = p.tiles;
 }
 
 void Player::add(const vector<TILE_TYPE>& tiles) {
@@ -37,7 +41,8 @@ void Player::remove(const vector<TILE_TYPE>& tiles) {
     for (const auto& t : tiles) {
         this->cnt[static_cast<int>(t)]--;
         auto pr = std::equal_range(std::begin(this->tiles), std::end(this->tiles), t);
-        this->tiles.erase(pr.first, pr.second);
+        assert(pr.first < this->tiles.end());
+        this->tiles.erase(pr.first, pr.first + 1);
     }
 }
 
@@ -49,10 +54,12 @@ bool Player::can_complete(const TILE_TYPE& tile) {
     int x = 0, p = -1;
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 9; j++) {
-            if (cnt[i * 9 + j] == 0 && b) {
-                b = false;
-                x |= 0x1 << p;
-                p++;
+            if (cnt[i * 9 + j] == 0) {
+                if (b) {
+                    b = false;
+                    x |= 0x1 << p;
+                    p++;
+                }
             } else {
                 p++;
                 b = true;
@@ -92,12 +99,14 @@ bool Player::can_complete(const TILE_TYPE& tile) {
         }
     }
 
-
+    
 
 
     if (tile != TILE_TYPE::NONE) {
         cnt[static_cast<int>(tile)]--;
     }
+    assert(!complete_keys.empty());
+    return complete_keys.find(x) != complete_keys.end();
 }
 
 bool Player::can_chow(const TILE_TYPE& tile, vector<vector<TILE_TYPE>>& sols) {

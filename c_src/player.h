@@ -11,7 +11,7 @@ enum class TILE_TYPE {
     BAMBOO_FIVE = 4,
     BAMBOO_SIX = 5,
     BAMBOO_SEVEN = 6,
-    BAMBOO_EIGEHT = 7,
+    BAMBOO_EIGHT = 7,
     BAMBOO_NINE = 8,
     CIRCLE_ONE = 9,
     CIRCLE_TWO = 10,
@@ -48,7 +48,7 @@ class Player {
 public:
     vector<TILE_TYPE> tiles;
     Player(const vector<TILE_TYPE>& tiles);
-    Player(Player* const);
+    Player(const Player&);
     void add(const vector<TILE_TYPE>& tiles);
     void remove(const vector<TILE_TYPE>& tiles);
 

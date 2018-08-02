@@ -8,6 +8,7 @@ import resource
 from enum import Enum
 import numpy as np
 import pickle
+from clib import TILE_TYPE
 
 
 class Player:
@@ -36,8 +37,8 @@ class Player:
                 self.add(tile)
         else:
             self._tiles.append(tiles)
-            self._cnt[tiles.value] += 1
-            self._tiles.sort(key=lambda x: x.value)
+            self._cnt[int(tiles)] += 1
+            self._tiles.sort(key=lambda x: int(x))
 
     def refresh(self):
         self._graphics.clear_player_sprites(self)
@@ -65,15 +66,16 @@ class Player:
         if isinstance(tiles, collections.Iterable):
             for tile in tiles:
                 self.remove(tile)
+            return tiles
         else:
             self._tiles.remove(tiles)
-            self._cnt[tiles.value] -= 1
+            self._cnt[int(tiles)] -= 1
             return tiles
 
-    def can_complete(self, tile=None):
+    def can_complete(self, tile=TILE_TYPE.NONE):
         cnt = self._cnt.copy()
-        if tile:
-            cnt[tile.value] += 1
+        if tile != TILE_TYPE.NONE:
+            cnt[int(tile)] += 1
         b = False
         x = 0
         p = -1
@@ -114,10 +116,11 @@ class Player:
                     p += 6
                 x |= 0x1 << p
                 p += 1
+        print(x)
         return x in Player.complete_keys
 
     def can_chow(self, tile):
-        if not tile:
+        if tile == TILE_TYPE.NONE:
             return False, None
         cnt = self._cnt
         arr = [[-2, -1], [-1, 1], [1, 2]]
@@ -125,19 +128,18 @@ class Player:
 
         can_chow = False
         sols = []
-        if tile.value < 27:
-            for i in range(3):
-                val = tile.value + arr[i][0], tile.value + arr[i][1]
-                if cnt[tile.value + arr[i][0]] >= 1 and cnt[tile.value + arr[i][1]] >= 1 and val[0] >= 0 and val[1] >= 0:
-                    cand = resource.TileType.int2enum(val[0]), resource.TileType.int2enum(val[1])
-                    if type(cand[0]) == type(cand[1]) == type(tile):
+        for bound in range(9, 28, 9):
+            if bound - 9 <= int(tile) <= bound:
+                for i in range(3):
+                    val = int(tile) + arr[i][0], int(tile) + arr[i][1]
+                    if val[0] >= bound - 9 and val[1] < bound and cnt[val[0]] >= 1 and cnt[val[1]] >= 1:
                         can_chow = True
-                        sols.append(cand)
+                        sols.append([TILE_TYPE(val[0]), TILE_TYPE(val[1])])
         return can_chow, sols
 
     def can_pung(self, tile):
 
-        return self._cnt[tile.value] >= 2
+        return self._cnt[int(tile)] >= 2
 
     def respond_normal(self):
         pass
@@ -220,7 +222,7 @@ class HumanPlayer(Player):
                         clicked = True
                         return
                     for sol in sols:
-                        if sorted(self._chosen_tiles, key=lambda x: x.value) == sorted(sol, key=lambda x: x.value):
+                        if sorted(self._chosen_tiles, key=lambda x: int(x)) == sorted(sol, key=lambda x: int(x)):
                             btn.kill()
                             txt.kill()
                             clicked = True
@@ -248,7 +250,7 @@ class HumanPlayer(Player):
                 return True
         return False
 
-    def respond_complete(self, tile=None):
+    def respond_complete(self, tile=TILE_TYPE.NONE):
         can_complete = self.can_complete(tile)
         if can_complete:
             clicked = False
@@ -321,7 +323,7 @@ class HumanPlayer(Player):
                         txt.kill()
                         clicked = True
                         return
-                    if len(self._chosen_tiles) == 2 and self._chosen_tiles[0].value == self._chosen_tiles[1].value == tile.value:
+                    if len(self._chosen_tiles) == 2 and int(self._chosen_tiles[0]) == int(self._chosen_tiles[1]) == int(tile):
                         btn.kill()
                         txt.kill()
                         clicked = True
@@ -372,16 +374,14 @@ class AIPlayer(Player):
 
 if __name__ == '__main__':
     player = Player(None, None, 'nihao')
-    player._tiles = [resource.TileType.BAMBOO.ONE, resource.TileType.BAMBOO.ONE, resource.TileType.BAMBOO.ONE,
-                     resource.TileType.BAMBOO.TWO, resource.TileType.BAMBOO.TWO, resource.TileType.BAMBOO.TWO, resource.TileType.BAMBOO.TWO,
-                     resource.TileType.BAMBOO.THREE, resource.TileType.BAMBOO.THREE, resource.TileType.BAMBOO.THREE, resource.TileType.BAMBOO.THREE,
-                     resource.TileType.BAMBOO.FOUR, resource.TileType.BAMBOO.FOUR, resource.TileType.BAMBOO.FOUR]
+    player.add([TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE])
+    print(player._cnt)
     print(player.can_complete())
-    player._tiles = [resource.TileType.BAMBOO.ONE, resource.TileType.BAMBOO.ONE, resource.TileType.BAMBOO.ONE,
-                     resource.TileType.BAMBOO.TWO, resource.TileType.BAMBOO.THREE, resource.TileType.BAMBOO.FOUR,
-                     resource.TileType.BAMBOO.SIX,
-                     resource.TileType.BAMBOO.SEVEN, resource.TileType.BAMBOO.EIGHT, resource.TileType.SPECIAL.EAST,
-                     resource.TileType.SPECIAL.EAST,
-                     resource.TileType.SPECIAL.EAST, resource.TileType.SPECIAL.WEST, resource.TileType.SPECIAL.WEST]
+    player.add([TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE,
+                     TILE_TYPE.BAMBOO_TWO, TILE_TYPE.BAMBOO_THREE, TILE_TYPE.BAMBOO_FOUR,
+                     TILE_TYPE.BAMBOO_FIVE,
+                     TILE_TYPE.BAMBOO_SIX, TILE_TYPE.BAMBOO_SEVEN, TILE_TYPE.SPECIAL_EAST,
+                     TILE_TYPE.SPECIAL_EAST,
+                     TILE_TYPE.SPECIAL_EAST, TILE_TYPE.SPECIAL_WEST, TILE_TYPE.SPECIAL_WEST])
     print(player.can_complete())
     # print('#08X' % player.can_complete())

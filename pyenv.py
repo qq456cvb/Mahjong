@@ -4,15 +4,15 @@ import random
 from players import Player
 import copy
 import itertools
-from montecarlo import MCTree, State
+from montecarlo import MCTree
 import sys
 import numpy as np
 sys.path.insert(0, './build')
 from clib import mc_search, STATE_ID, TILE_TYPE
 
 NUM_PROCS = 1
-NUM_SEARCH = 10
-
+NUM_SEARCH = 100
+c = 1.
 
 class ACTION_TYPE:
     DISCARD = 0
@@ -40,7 +40,7 @@ class RandomPlayer(Player):
     def respond_normal(self):
         return self.remove(random.choice(self._tiles))
 
-    def respond_complete(self, tile=None):
+    def respond_complete(self, tile=TILE_TYPE.NONE):
         return self.can_complete(tile)
 
 
@@ -51,11 +51,14 @@ class MCPlayer(Player):
         self.env = env
 
     def respond_chow(self, tile):
-        s = State(State.STATE_ID.CHOW, self.env._last_tile, self.env._players, self.env._all_tiles, self.env._current_turn)
-        mc = MCTree(s, self.env._current_turn)
-        mc.search(NUM_PROCS, NUM_SEARCH)
-        a = mc.predict(0.5)
-        if a is not None:
+        assert self.env._current_turn == self.idx
+        a = mc_search(STATE_ID.CHOW, self.env._last_tile, [player._tiles for player in self.env._players],
+                      self.env._all_tiles, self.env._current_turn, self.idx, NUM_PROCS, NUM_SEARCH, c)
+        # s = State(State.STATE_ID.CHOW, self.env._last_tile, self.env._players, self.env._all_tiles, self.env._current_turn)
+        # mc = MCTree(s, self.env._current_turn)
+        # mc.search(NUM_PROCS, NUM_SEARCH)
+        # a = mc.predict(0.5)
+        if len(a) > 0:
             self.remove(a)
             return True
         return False
@@ -64,11 +67,13 @@ class MCPlayer(Player):
         diff = self.idx - self.env._current_turn
         if diff < 0:
             diff += 4
-        s = State(State.STATE_ID.PUNG1 + diff - 1, self.env._last_tile, self.env._players, self.env._all_tiles, self.env._current_turn)
-        mc = MCTree(s, self.idx)
-        mc.search(NUM_PROCS, NUM_SEARCH)
-        a = mc.predict(0.5)
-        if a:
+        a = mc_search(STATE_ID(int(STATE_ID.PUNG1) + diff - 1), self.env._last_tile, [player._tiles for player in self.env._players],
+                      self.env._all_tiles, self.env._current_turn, self.idx, NUM_PROCS, NUM_SEARCH, c)
+        # s = State(State.STATE_ID.PUNG1 + diff - 1, self.env._last_tile, self.env._players, self.env._all_tiles, self.env._current_turn)
+        # mc = MCTree(s, self.idx)
+        # mc.search(NUM_PROCS, NUM_SEARCH)
+        # a = mc.predict(0.5)
+        if len(a) > 0:
             self.remove([tile, tile])
             return True
         return False
@@ -76,54 +81,48 @@ class MCPlayer(Player):
     # TODO: assume incomplete information, sample from multiple monte-carlo trees
     def respond_normal(self):
         assert self.env._current_turn == self.idx
-        a = mc_search(STATE_ID.DISCARD, TILE_TYPE.NONE, [[TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE], [TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE], [TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE]],
-                      [TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE], self.env._current_turn, self.idx, 1, 100)
-        print(a)
+        a = mc_search(STATE_ID.DISCARD, self.env._last_tile, [player._tiles for player in self.env._players],
+                      self.env._all_tiles, self.env._current_turn, self.idx, NUM_PROCS, NUM_SEARCH, c)
         # s = State(State.STATE_ID. DISCARD, self.env._last_tile, self.env._players, self.env._all_tiles, self.env._current_turn)
         # mc = MCTree(s, self.env._current_turn)
         # mc.search(NUM_PROCS, NUM_SEARCH)
         # a = mc.predict(0.5)
-        return self.remove(resource.TileType.int2enum(int(a[0])))
+        return self.remove(a[0])
 
-    def respond_complete(self, tile=None):
+    def respond_complete(self, tile=TILE_TYPE.NONE):
         return self.can_complete(tile)
 
 
 class Env:
     ALL_TILES = []
-    for i in resource.TileType.BAMBOO:
-        ALL_TILES.extend([[i]] * 4)
-    for i in resource.TileType.CIRCLE:
-        ALL_TILES.extend([[i]] * 4)
-    for i in resource.TileType.WAN:
-        ALL_TILES.extend([[i]] * 4)
-    for i in resource.TileType.SPECIAL:
-        ALL_TILES.extend([[i]] * 4)
+    for _ in range(4):
+        ALL_TILES.extend([TILE_TYPE(i) for i in range(5)])
 
     def __init__(self):
         self._current_turn = 0
-        self._players = [MCPlayer('player 0', 0, self)] + [RandomPlayer('player %d' % i) for i in range(1, 4)]
-        self._last_tile = None
+        self._players = [RandomPlayer('player'),
+                         MCPlayer('player', 1, self),
+                         RandomPlayer('player'),
+                         RandomPlayer('player')
+                         ]
+        self._last_tile = TILE_TYPE.NONE
         self._control_player = 0
         self._all_tiles = []
 
     def reset(self):
-        self._last_tile = None
+        self._last_tile = TILE_TYPE.NONE
         self._all_tiles = Env.ALL_TILES.copy()
         random.shuffle(self._all_tiles)
         for player in self._players:
             player.reset()
-            player.add(self._all_tiles[:13])
-            self._all_tiles = self._all_tiles[13:]
+            player.add(self._all_tiles[:4])
+            self._all_tiles = self._all_tiles[4:]
 
     def step(self, draw=True):
-        print('stepped')
+        # print('stepped')
         # cards all out
-        if len(self._all_tiles) == 0:
-            self.reset()
-            return -1, True
 
-        if self._last_tile and self._players[self._current_turn].respond_chow(self._last_tile):
+        if self._last_tile != TILE_TYPE.NONE and self._players[self._current_turn].respond_chow(self._last_tile):
             draw = False
 
         if draw:
@@ -137,11 +136,14 @@ class Env:
             if self._players[i % 4].respond_complete(self._last_tile):
                 self.reset()
                 return i % 4, True
+        if len(self._all_tiles) == 0:
+            self.reset()
+            return -1, True
 
         for i in range(self._current_turn + 1, self._current_turn + 4):
             if self._players[i % 4].respond_pung(self._last_tile):
                 self._current_turn = i % 4
-                self._last_tile = None
+                self._last_tile = TILE_TYPE.NONE
                 return self.step(False)
 
         self._current_turn = (self._current_turn + 1) % 4
@@ -260,9 +262,9 @@ class Env:
 
 if __name__ == '__main__':
     env = Env()
-
+    random.seed(0)
     cnts = [0 for i in range(5)]
-    for i in range(1):
+    for i in range(10):
         env.reset()
         done = False
         while not done:
@@ -271,6 +273,7 @@ if __name__ == '__main__':
             cnts[0] += 1
         else:
             cnts[winner + 1] += 1
+        print('finished')
 
     for i in range(5):
         print(cnts[i] / 1)

@@ -5,6 +5,7 @@ import players
 import random
 import os
 import sprites
+from clib import TILE_TYPE
 
 
 class Controller():
@@ -29,19 +30,13 @@ class Controller():
 
     def reset(self):
         self._current_turn = 0
-        self._last_tile = None
+        self._last_tile = TILE_TYPE.NONE
         self._can_draw = False
         self._cache_text = None
         self._all_tiles = []
         self._graphic_mgr.reset()
-        for i in resource.TileType.BAMBOO:
-            self._all_tiles.extend([[i]] * 4)
-        for i in resource.TileType.CIRCLE:
-            self._all_tiles.extend([[i]] * 4)
-        for i in resource.TileType.WAN:
-            self._all_tiles.extend([[i]] * 4)
-        for i in resource.TileType.SPECIAL:
-            self._all_tiles.extend([[i]] * 4)
+        for _ in range(4):
+            self._all_tiles.extend([TILE_TYPE(i) for i in range(34)])
         random.shuffle(self._all_tiles)
         for player in self._players:
             player.reset()
@@ -91,7 +86,7 @@ class Controller():
         for i in range(self._current_turn + 1, self._current_turn + 4):
             if self._players[i % 4].respond_pung(self._last_tile):
                 self._current_turn = i % 4
-                self._last_tile = None
+                self._last_tile = TILE_TYPE.NONE
                 return self.step(False)
 
         self._current_turn = (self._current_turn + 1) % 4

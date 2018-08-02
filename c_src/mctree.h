@@ -1,6 +1,7 @@
 #include <vector>
 
 #include <iostream>
+#include <fstream>
 
 #include "player.h"
 #include <thread>
@@ -24,7 +25,7 @@ class State {
 public:
     TILE_TYPE last_tile;
     int idx = 0;
-    int winner = -1;
+    int winner = 10;
     STATE_ID id;
     vector<Player*> players;
     vector<TILE_TYPE>remain_cards;

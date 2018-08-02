@@ -43,9 +43,10 @@ enum class TILE_TYPE {
 
 class Player {
     
-    vector<int> cnt;
+    
 
 public:
+    vector<int> cnt;
     vector<TILE_TYPE> tiles;
     Player(const vector<TILE_TYPE>& tiles);
     Player(const Player&);

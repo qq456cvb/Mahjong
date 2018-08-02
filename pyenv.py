@@ -10,7 +10,7 @@ import numpy as np
 sys.path.insert(0, './build')
 from clib import mc_search, STATE_ID, TILE_TYPE
 
-NUM_PROCS = 1
+NUM_PROCS = 16
 NUM_SEARCH = 100
 c = 1.
 
@@ -96,14 +96,16 @@ class MCPlayer(Player):
 class Env:
     ALL_TILES = []
     for _ in range(4):
-        ALL_TILES.extend([TILE_TYPE(i) for i in range(5)])
+        ALL_TILES.extend([TILE_TYPE(i) for i in range(34)])
 
     def __init__(self):
         self._current_turn = 0
         self._players = [RandomPlayer('player'),
-                         MCPlayer('player', 1, self),
+                         # RandomPlayer('player'),
+                         MCPlayer(None, 1, self),
                          RandomPlayer('player'),
-                         RandomPlayer('player')
+                         RandomPlayer('player'),
+
                          ]
         self._last_tile = TILE_TYPE.NONE
         self._control_player = 0
@@ -115,8 +117,8 @@ class Env:
         random.shuffle(self._all_tiles)
         for player in self._players:
             player.reset()
-            player.add(self._all_tiles[:4])
-            self._all_tiles = self._all_tiles[4:]
+            player.add(self._all_tiles[:13])
+            self._all_tiles = self._all_tiles[13:]
 
     def step(self, draw=True):
         # print('stepped')
@@ -264,7 +266,7 @@ if __name__ == '__main__':
     env = Env()
     random.seed(0)
     cnts = [0 for i in range(5)]
-    for i in range(10):
+    for i in range(100):
         env.reset()
         done = False
         while not done:

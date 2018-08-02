@@ -131,38 +131,38 @@ public class AgariIndex {
 
     public static void main(String[] args) {
         int[] hai = {
-            MAN1, MAN1, MAN1,
-            MAN2, MAN3, MAN4,
-            MAN6, MAN7, MAN8,
-            TON, TON, TON,
-            SHA, SHA};
+            MAN1, MAN1};
 
         int[] n = null;
         int[] pos = new int[14];
         int[] ret = null;
 
         long time = System.currentTimeMillis();
+        int key = 0;
         for (int i = 0; i < 100000; i++) {
             n = analyse(hai);
-            int key = calc_key(n, pos);
+            key = calc_key(n, pos);
+            
             ret = agari(key);
         }
+        System.out.println(key);
+        System.out.println(ret == null);
         System.out.println(System.currentTimeMillis() - time);
 
-        for (int r : ret) {
-            System.out.print("雀頭=");
-            System.out.println(pos[(r>>6)&0xF]);
-            int num_kotsu = r&0x7;
-            int num_shuntsu = (r>>3)&0x7;
-            for (int i = 0; i < num_kotsu; i++) {
-                System.out.print("刻子=");
-                System.out.println(pos[(r>>(10+i*4))&0xF]);
-            }
-            for (int i = 0; i < num_shuntsu; i++) {
-                System.out.print("順子=");
-                System.out.println(pos[(r>>(10+num_kotsu*4+i*4))&0xF]);
-            }
-        }
+        // for (int r : ret) {
+        //     System.out.print("雀頭=");
+        //     System.out.println(pos[(r>>6)&0xF]);
+        //     int num_kotsu = r&0x7;
+        //     int num_shuntsu = (r>>3)&0x7;
+        //     for (int i = 0; i < num_kotsu; i++) {
+        //         System.out.print("刻子=");
+        //         System.out.println(pos[(r>>(10+i*4))&0xF]);
+        //     }
+        //     for (int i = 0; i < num_shuntsu; i++) {
+        //         System.out.print("順子=");
+        //         System.out.println(pos[(r>>(10+num_kotsu*4+i*4))&0xF]);
+        //     }
+        // }
     }
 
     private static void init(TreeMap<Integer, int[]> tbl) {

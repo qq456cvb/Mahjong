@@ -37,6 +37,7 @@ class Player:
                 self.add(tile)
         else:
             self._tiles.append(tiles)
+
             self._cnt[int(tiles)] += 1
             self._tiles.sort(key=lambda x: int(x))
 
@@ -116,7 +117,6 @@ class Player:
                     p += 6
                 x |= 0x1 << p
                 p += 1
-        print(x)
         return x in Player.complete_keys
 
     def can_chow(self, tile):
@@ -374,14 +374,15 @@ class AIPlayer(Player):
 
 if __name__ == '__main__':
     player = Player(None, None, 'nihao')
-    player.add([TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE])
-    print(player._cnt)
-    print(player.can_complete())
+    # player.add([TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE])
+    # print(player._cnt)
+    # print(player.can_complete())
     player.add([TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE, TILE_TYPE.BAMBOO_ONE,
                      TILE_TYPE.BAMBOO_TWO, TILE_TYPE.BAMBOO_THREE, TILE_TYPE.BAMBOO_FOUR,
                      TILE_TYPE.BAMBOO_FIVE,
                      TILE_TYPE.BAMBOO_SIX, TILE_TYPE.BAMBOO_SEVEN, TILE_TYPE.SPECIAL_EAST,
                      TILE_TYPE.SPECIAL_EAST,
                      TILE_TYPE.SPECIAL_EAST, TILE_TYPE.SPECIAL_WEST, TILE_TYPE.SPECIAL_WEST])
+    print(player._cnt)
     print(player.can_complete())
     # print('#08X' % player.can_complete())

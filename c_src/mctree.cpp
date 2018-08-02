@@ -3,7 +3,8 @@
 #include <assert.h>
 #include <unordered_set>
 
-// unordered_set<int> complete_keys;
+extern unordered_set<int> complete_keys;
+static vector<unsigned int> seeds;
 
 State::State(STATE_ID id, TILE_TYPE last_tile, const vector<vector<TILE_TYPE>>& handcards,
         const vector<TILE_TYPE>& deck, int idx) {
@@ -95,14 +96,23 @@ Edge::~Edge() {
 
 Edge* Node::choose(float c) {
     float sum = 0.f;
-    for (auto e : edges) {
-        sum += e->n;
+    size_t e_size = edges.size();
+    vector<int> n(e_size, 0);
+    vector<float> p(e_size, 0);
+    vector<float> q(e_size, 0);
+    for (int i = 0; i < edges.size(); i++) {
+        std::shared_lock<std::shared_timed_mutex> lock(edges[i]->mu_nwq);
+        n[i] = edges[i]->n;
+        sum += n[i];
+        p[i] = edges[i]->p;
+        q[i] = edges[i]->q;
     }
+
     float nsum_sqrt = sqrtf(sum);
     int best_idx = -1;
     float best = -100.f;
-    for (int i = 0; i < edges.size(); i++) {
-        float cand = edges[i]->q + c * edges[i]->p * nsum_sqrt / (1.f + edges[i]->n);
+    for (int i = 0; i < e_size; i++) {
+        float cand = q[i] + c * p[i] * nsum_sqrt / (1.f + n[i]);
         if (cand > best) {
             best_idx = i;
             best = cand;
@@ -113,24 +123,25 @@ Edge* Node::choose(float c) {
 
 
 MCTree::MCTree(State* st, int idx, float c) {
-    // if (complete_keys.empty()) {
-    //     ifstream fs ("./complete.bin", ios::in | ios::binary);
-    //     if (fs.is_open()) {
-    //         fs.seekg(0, ios::end);
-    //         int f_size = fs.tellg();
-    //         fs.seekg(0);
-    //         vector<int> nums(f_size / sizeof(int), 0);
-    //         fs.read((char*)&nums[0], f_size);
-    //         cout << nums.size() << endl;
-    //         for (auto i : nums) {
-    //             complete_keys.insert(i);
-    //         }
-    //     } else {
-    //         cout << "sth wrong." << endl;
-    //     }
-    // } else {
-    //     // cout << "already exists" << endl;
-    // }
+    if (complete_keys.empty()) {
+        ifstream fs ("./complete.bin", ios::in | ios::binary);
+        if (fs.is_open()) {
+            fs.seekg(0, ios::end);
+            int f_size = fs.tellg();
+            fs.seekg(0);
+            vector<int> nums(f_size / sizeof(int), 0);
+            fs.read((char*)&nums[0], f_size);
+            cout << nums.size() << endl;
+            for (auto i : nums) {
+                complete_keys.insert(i);
+            }
+        } else {
+            cout << "sth wrong." << endl;
+        }
+    } else {
+        // cout << "already exists" << endl;
+    }
+    
     this->root = new Node(nullptr, st);
     this->idx = idx;
     this->counter = 0;
@@ -145,18 +156,23 @@ MCTree::~MCTree() {
 }
 
 void MCTree::search(int n_threads, int n) {
+    if (seeds.empty()) {
+        for (int i = 0; i < n_threads; i++) {
+            seeds.push_back(i);
+        }
+    }
     counter = n;
     vector<thread> threads;
     for (int i = 0; i < n_threads; i++) {
         
-        threads.push_back(std::move(std::thread(&MCTree::search_thread, this)));
+        threads.push_back(std::move(std::thread(&MCTree::search_thread, this, &seeds[i])));
     }
     for (auto& t : threads) {
         t.join();
     }
 }
 
-void MCTree::search_thread() {
+void MCTree::search_thread(unsigned int* seed) {
     while (true) {
         {
             std::lock_guard<std::mutex> lock(counter_mu);
@@ -168,24 +184,32 @@ void MCTree::search_thread() {
         }
         float val = 0.f;
         // cout << "explore" << endl;
-        Node* leaf = explore(root, val);
+        Node* leaf = explore(root, val, seed);
         // cout << val << endl;
         backup(leaf, val);
     }
 }
 
-Node* MCTree::explore(Node* node, float& val) {
+
+// TODO: change node lock to per edge RW lock
+Node* MCTree::explore(Node* node, float& val, unsigned int* seed) {
     std::unique_lock<std::mutex> lock(node->mu);
     auto edge = node->choose(this->c);
-    if (edge->dest) {
-        
-        if (edge->terminiated) {
-            val = edge->r;
-            lock.unlock();
-            return edge->dest;
+    Node* dest = nullptr;
+    bool term = false;
+    float r = 0;
+    {
+        std::shared_lock<std::shared_timed_mutex> lock(edge->mu_rtd);
+        dest = edge->dest;
+        term = edge->terminiated;
+        r = edge->r;
+    }
+    if (dest) {
+        if (term) {
+            val = r;
+            return dest;
         } else {
-            lock.unlock();
-            return explore(edge->dest, val);
+            return explore(dest, val, seed);
         }
     } else {
         // cout << node->st->idx << ": " << static_cast<int>(node->st->id) << ", ";
@@ -196,33 +220,41 @@ Node* MCTree::explore(Node* node, float& val) {
             auto actions = sprime->get_action_space();
             // cout << sprime->idx << ": " << static_cast<int>(sprime->id) << ", ";
             // cout << actions.size() << endl;
-            sprime = step(*sprime, actions[rand() % actions.size()]);
+            sprime = step(*sprime, actions[rand_r(seed) % actions.size()]);
             if (last_s) {
                 delete last_s;
             }
         }
-        edge->dest = new Node(edge, sprime);
-        
+        auto dest = new Node(edge, sprime);
+
         if (sprime->id == STATE_ID::FINISHED) {
+            float r = 0;
             if (sprime->winner == idx) {
-                edge->r = 1;
+                r = 1.f;
             } else if (sprime->winner >= 0) {
-                edge->r = -1;
+                r = -1.f;
             } else {
-                edge->r = 0;
+                r = 0;
             }
-            edge->terminiated = true;
-            val = edge->r;
-            return edge->dest;
+
+            {
+                std::unique_lock<std::shared_timed_mutex> lock(edge->mu_rtd);
+                edge->terminiated = true;
+                edge->dest = dest;
+                edge->r = r;
+            }
+            val = r;
+            return dest;
+        } else {
+            {
+                std::unique_lock<std::shared_timed_mutex> lock(edge->mu_rtd);
+                edge->dest = dest;
+            }
+            
+            // cout << "rollout ";
+            val = rollout(dest, seed);
+            return dest;
         }
-        // cout << "rollout ";
-        val = rollout(edge->dest);
-        if (val != 0) {
-            cout << val << ", ";
-        }
-        
-        lock.unlock();
-        return edge->dest;
     }
 }
 
@@ -230,7 +262,7 @@ void MCTree::backup(Node* node, float val) {
     while (node->src) {
         auto edge = node->src;
         {
-            std::lock_guard<std::mutex> lock(edge->mu);
+            std::unique_lock<std::shared_timed_mutex> lock(edge->mu_nwq);
             edge->n++;
             edge->w += val;
             edge->q = edge->w / edge->n;
@@ -239,7 +271,7 @@ void MCTree::backup(Node* node, float val) {
     }
 }
 
-float MCTree::rollout(Node* node) {
+float MCTree::rollout(Node* node, unsigned int* seed) {
     auto st = node->st;
     bool first_time = true;
     while (st->id != STATE_ID::FINISHED) {
@@ -247,7 +279,7 @@ float MCTree::rollout(Node* node) {
         // cout << st->idx << ": " << static_cast<int>(st->id) << ", ";
         // cout << actions.size() << endl;
         auto last_st = st;
-        st = step(*st, actions[rand() % actions.size()]);
+        st = step(*st, actions[rand_r(seed) % actions.size()]);
         if (!first_time) {
             delete last_st;
         }
@@ -256,7 +288,7 @@ float MCTree::rollout(Node* node) {
         }
     }
     float r = 0;
-    cout << st->winner << endl;
+    // cout << st->winner << endl;
     if (st->winner == idx) {
         r = 1.f;
     } else if (st->winner >= 0) {
@@ -295,7 +327,12 @@ State* step(const State& s, const vector<TILE_TYPE>& a) {
             // cout << sprime->remain_cards.size() << endl;
             sprime->players[sprime->idx]->add({sprime->remain_cards.back()});
             sprime->remain_cards.pop_back();
+            // for (int i = 0; i < sprime->players[sprime->idx]->cnt.size(); i++) {
+            //     cout << sprime->players[sprime->idx]->cnt[i] << ",";
+            // }
+            // cout << endl;
             if (sprime->players[sprime->idx]->can_complete()) {
+                // cout << sprime->idx << endl;
                 sprime->id = STATE_ID::FINISHED;
                 sprime->winner = sprime->idx;
             }

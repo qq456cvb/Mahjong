@@ -6,6 +6,7 @@
 #include "player.h"
 #include <thread>
 #include <mutex>
+#include <shared_mutex>
 
 using namespace std;
 
@@ -67,7 +68,7 @@ public:
     float w = 0.f;
     float q = 0.f;
     bool terminiated = false;
-    std::mutex mu;
+    std::shared_timed_mutex mu_nwq, mu_rtd;
     float r = 0.f;
     float p = 0.f;
     Node* src = nullptr;
@@ -92,10 +93,10 @@ public:
     ~MCTree();
 
     void search(int n_threads, int n);
-    void search_thread();
-    Node* explore(Node* node, float& val);
+    void search_thread(unsigned int*);
+    Node* explore(Node* node, float& val, unsigned int*);
     void backup(Node* node, float val);
-    float rollout(Node* node);
+    float rollout(Node* node, unsigned int*);
     vector<TILE_TYPE> predict(float temp);
 };
 

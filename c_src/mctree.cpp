@@ -97,22 +97,22 @@ Edge::~Edge() {
 Edge* Node::choose(float c) {
     float sum = 0.f;
     size_t e_size = edges.size();
-    vector<int> n(e_size, 0);
-    vector<float> p(e_size, 0);
-    vector<float> q(e_size, 0);
+    // vector<int> n(e_size, 0);
+    // vector<float> p(e_size, 0);
+    // vector<float> q(e_size, 0);
     for (int i = 0; i < edges.size(); i++) {
-        std::shared_lock<std::shared_timed_mutex> lock(edges[i]->mu_nwq);
-        n[i] = edges[i]->n;
-        sum += n[i];
-        p[i] = edges[i]->p;
-        q[i] = edges[i]->q;
+        // std::shared_lock<std::shared_timed_mutex> lock(edges[i]->mu);
+        // n[i] = edges[i]->n;
+        sum += edges[i]->n;
+        // p[i] = edges[i]->p;
+        // q[i] = edges[i]->q;
     }
 
     float nsum_sqrt = sqrtf(sum);
     int best_idx = -1;
     float best = -100.f;
     for (int i = 0; i < e_size; i++) {
-        float cand = q[i] + c * p[i] * nsum_sqrt / (1.f + n[i]);
+        float cand = edges[i]->q + c * edges[i]->p * nsum_sqrt / (1.f + edges[i]->n);
         if (cand > best) {
             best_idx = i;
             best = cand;
@@ -191,25 +191,18 @@ void MCTree::search_thread(unsigned int* seed) {
 }
 
 
-// TODO: change node lock to per edge RW lock
+// TODO: change node lock to per 
 Node* MCTree::explore(Node* node, float& val, unsigned int* seed) {
     std::unique_lock<std::mutex> lock(node->mu);
     auto edge = node->choose(this->c);
-    Node* dest = nullptr;
-    bool term = false;
-    float r = 0;
-    {
-        std::shared_lock<std::shared_timed_mutex> lock(edge->mu_rtd);
-        dest = edge->dest;
-        term = edge->terminiated;
-        r = edge->r;
-    }
-    if (dest) {
-        if (term) {
-            val = r;
-            return dest;
+    if (edge->dest) {
+        if (edge->terminiated) {
+            val = edge->r;
+            lock.unlock();
+            return edge->dest;
         } else {
-            return explore(dest, val, seed);
+            lock.unlock();
+            return explore(edge->dest, val, seed);
         }
     } else {
         // cout << node->st->idx << ": " << static_cast<int>(node->st->id) << ", ";
@@ -225,36 +218,30 @@ Node* MCTree::explore(Node* node, float& val, unsigned int* seed) {
                 delete last_s;
             }
         }
-        auto dest = new Node(edge, sprime);
-
+        edge->dest = new Node(edge, sprime);
+        
         if (sprime->id == STATE_ID::FINISHED) {
-            float r = 0;
             if (sprime->winner == idx) {
-                r = 1.f;
+                edge->r = 1;
             } else if (sprime->winner >= 0) {
-                r = -1.f;
+                edge->r = -1;
             } else {
-                r = 0;
+                edge->r = 0;
             }
-
-            {
-                std::unique_lock<std::shared_timed_mutex> lock(edge->mu_rtd);
-                edge->terminiated = true;
-                edge->dest = dest;
-                edge->r = r;
-            }
-            val = r;
-            return dest;
-        } else {
-            {
-                std::unique_lock<std::shared_timed_mutex> lock(edge->mu_rtd);
-                edge->dest = dest;
-            }
-            
-            // cout << "rollout ";
-            val = rollout(dest, seed);
-            return dest;
+            edge->terminiated = true;
+            val = edge->r;
+            return edge->dest;
         }
+        lock.unlock();
+        // cout << "rollout ";
+        val = rollout(edge->dest, seed);
+        // cout << val << endl;
+        // if (val != 0) {
+        //     cout << val << ", ";
+        // }
+        
+        
+        return edge->dest;
     }
 }
 
@@ -262,7 +249,7 @@ void MCTree::backup(Node* node, float val) {
     while (node->src) {
         auto edge = node->src;
         {
-            std::unique_lock<std::shared_timed_mutex> lock(edge->mu_nwq);
+            std::lock_guard<std::mutex> lock(edge->src->mu);
             edge->n++;
             edge->w += val;
             edge->q = edge->w / edge->n;

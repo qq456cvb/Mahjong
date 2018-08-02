@@ -68,7 +68,7 @@ public:
     float w = 0.f;
     float q = 0.f;
     bool terminiated = false;
-    std::shared_timed_mutex mu_nwq, mu_rtd;
+    std::shared_timed_mutex mu;
     float r = 0.f;
     float p = 0.f;
     Node* src = nullptr;

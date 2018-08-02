@@ -10,7 +10,7 @@ import numpy as np
 sys.path.insert(0, './build')
 from clib import mc_search, STATE_ID, TILE_TYPE
 
-NUM_PROCS = 16
+NUM_PROCS = 8
 NUM_SEARCH = 100
 c = 1.
 

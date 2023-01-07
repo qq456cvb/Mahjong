@@ -194,6 +194,7 @@ void MCTree::search_thread(unsigned int* seed) {
 // TODO: change node lock to per 
 Node* MCTree::explore(Node* node, float& val, unsigned int* seed) {
     std::unique_lock<std::mutex> lock(node->mu);
+    srand(*seed);
     auto edge = node->choose(this->c);
     if (edge->dest) {
         if (edge->terminiated) {
@@ -213,7 +214,7 @@ Node* MCTree::explore(Node* node, float& val, unsigned int* seed) {
             auto actions = sprime->get_action_space();
             // cout << sprime->idx << ": " << static_cast<int>(sprime->id) << ", ";
             // cout << actions.size() << endl;
-            sprime = step(*sprime, actions[rand_r(seed) % actions.size()]);
+            sprime = step(*sprime, actions[rand() % actions.size()]);
             if (last_s) {
                 delete last_s;
             }
@@ -261,12 +262,13 @@ void MCTree::backup(Node* node, float val) {
 float MCTree::rollout(Node* node, unsigned int* seed) {
     auto st = node->st;
     bool first_time = true;
+    srand(*seed);
     while (st->id != STATE_ID::FINISHED) {
         auto actions = st->get_action_space();
         // cout << st->idx << ": " << static_cast<int>(st->id) << ", ";
         // cout << actions.size() << endl;
         auto last_st = st;
-        st = step(*st, actions[rand_r(seed) % actions.size()]);
+        st = step(*st, actions[rand() % actions.size()]);
         if (!first_time) {
             delete last_st;
         }

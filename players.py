@@ -8,7 +8,7 @@ import resource
 from enum import Enum
 import numpy as np
 import pickle
-from clib import TILE_TYPE
+from build.Release.clib import TILE_TYPE
 
 
 class Player:

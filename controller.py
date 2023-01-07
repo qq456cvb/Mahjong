@@ -5,7 +5,7 @@ import players
 import random
 import os
 import sprites
-from clib import TILE_TYPE
+from build.Release.clib import TILE_TYPE
 
 
 class Controller():

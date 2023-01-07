@@ -2,9 +2,7 @@ import glob
 import os
 import pygame
 from enum import Enum
-import sys
-sys.path.insert(0, './build')
-from clib import TILE_TYPE
+from build.Release.clib import TILE_TYPE
 
 
 # class TileType:
